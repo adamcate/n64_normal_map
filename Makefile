@@ -21,6 +21,7 @@ filesystem/%.sprite: assets/%.png
 filesystem/normal.sprite: MKSPRITE_FLAGS=--format RGBA32
 filesystem/normal2.sprite: MKSPRITE_FLAGS=--format RGBA32
 filesystem/base.sprite: MKSPRITE_FLAGS=--format RGBA32
+filesystem/normal3.sprite: MKSPRITE_FLAGS=--format RGBA32
 
 $(BUILD_DIR)/normaldemo.dfs: $(assets_conv)
 $(BUILD_DIR)/normaldemo.elf: $(src:%.c=$(BUILD_DIR)/%.o)
