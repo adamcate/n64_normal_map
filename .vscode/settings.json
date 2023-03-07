@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "\"*.h\"": "\"c11\"",
+        "libdragon.h": "c"
+    }
+}
