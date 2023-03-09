@@ -1,2 +1,6 @@
-build
+build/
+*.o
+*.elf
+*.elf.bin
 *.z64
+*.d
