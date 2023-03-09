@@ -26,6 +26,7 @@ void draw_normal_point_light_tex_float(surface_t *disp, sprite_t *normal, int x_
 
     color_t curr_pixel;
     uint32_t output_pix = color_to_packed32(color);
+	uint32_t *buf = (uint32_t *)__get_buffer(&n_surf);
 
     //int light_level = 255;
 
@@ -34,7 +35,7 @@ void draw_normal_point_light_tex_float(surface_t *disp, sprite_t *normal, int x_
     for(int y = 0; y < normal->height; ++y){
             for(int x = 0; x < normal->width; ++x){
 
-                curr_pixel = color_from_packed32(__get_pixel((uint32_t *)__get_buffer(&n_surf),x, y));
+                curr_pixel = color_from_packed32(__get_pixel(buf,x, y));
 
                 if(!curr_pixel.a) continue;
 
@@ -129,8 +130,8 @@ int main() {
 	rdpq_mode_dithering(DITHER_NONE_NONE);
 
 	
-	int l_pos_x = 64, l_pos_y = 64, l_pos_z = 0;
-	float intensity = 127;
+	int l_pos_x = 128, l_pos_y = 64, l_pos_z = -20;
+	float intensity = 64;
 	
 	while (1) {
 		surface_t *disp;

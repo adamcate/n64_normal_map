@@ -10,6 +10,7 @@ assets_conv = $(addprefix filesystem/,$(notdir $(assets_png:%.png=%.sprite)))
 
 AUDIOCONV_FLAGS ?=
 MKSPRITE_FLAGS ?=
+CFLAGS += -funroll-loops
 
 all: normaldemo.z64
 
