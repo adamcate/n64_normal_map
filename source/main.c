@@ -11,7 +11,7 @@ surface_t normal_surf;
 surface_t base_surf;
 
 
-const int pix_stride = TEX_FORMAT_BYTES2PIX(FMT_RGBA32, 4*32);
+const int pix_stride = TEX_FORMAT_BYTES2PIX(FMT_RGBA32, 4*128);
 	
 #define __get_buffer( disp ) ((disp)->buffer)
 
@@ -21,57 +21,85 @@ const int pix_stride = TEX_FORMAT_BYTES2PIX(FMT_RGBA32, 4*32);
 #define __set_pixel( buffer, x, y, color ) \
     (buffer)[(x) + ((y) * pix_stride)] = color
 
-float inv_sqrt_from_lookup(float input, int num_vals, float* lut, int max, int min) {
-	int step = (max - min) / num_vals;
-	if (input >= max) input = max;
+void draw_normal_point_light_tex_float(surface_t *disp, sprite_t *normal, int x_pos, int y_pos, int light_x, int light_y, int light_z, color_t color, float intensity) {
+    surface_t n_surf = sprite_get_pixels(normal);
 
-	if(input < 0.f) input = 0.f;
+    color_t curr_pixel;
+    uint32_t output_pix = color_to_packed32(color);
 
-	return(lut[(int)(input/step)]);
+    //int light_level = 255;
+
+    float l_x = 0, l_y = 0, l_z = 0;
+
+    for(int y = 0; y < normal->height; ++y){
+            for(int x = 0; x < normal->width; ++x){
+
+                curr_pixel = color_from_packed32(__get_pixel((uint32_t *)__get_buffer(&n_surf),x, y));
+
+                if(!curr_pixel.a) continue;
+
+                l_x = light_x - x, l_y = y - light_y, l_z = 0 - light_z;
+
+
+                float dot_product = l_x * (curr_pixel.r - 127) + l_y * (curr_pixel.g - 127) + l_z * (curr_pixel.b - 127);
+
+
+				float mag = l_x * l_x + l_y * l_y + l_z * l_z;
+				
+				dot_product *= intensity;
+                if(mag != 0.f) dot_product /= mag;
+				
+
+				if(dot_product > 255.f) dot_product = 255.f;
+                if(dot_product < 0.f) dot_product = 0.f;
+
+                graphics_draw_pixel_trans(disp, x+x_pos, y+y_pos, (output_pix ^ 0xFF) | (uint32_t)(dot_product));
+                
+            }
+        }
 }
 
-void draw_normal_point_light_tex(surface_t *disp, sprite_t *normal, int x_pos, int y_pos, int light_x,
-							   int light_y, int light_z, color_t color, float intensity) {
+void draw_normal_point_light_tex_fast(surface_t *disp, sprite_t *normal, int x_pos, int y_pos, int light_x,
+							   int light_y, int light_z, color_t color, int intensity) {
 	surface_t n_surf = sprite_get_pixels(normal);
 
 	color_t curr_pixel;
-	color_t output_pix;
+
+	uint32_t col_pixel = color_to_packed32(color);
 
 	//int light_level = 255;
 
-	float l_x = 0, l_y = 0, l_z = 0;
-	float inv_magnitude;
-	for(int x = x_pos; x < normal->width + x_pos; ++x){
-			for(int y = y_pos; y < normal->height + y_pos; ++y){
+
+	// float inv_magnitude;
+	for(int y = y_pos; y < normal->height + y_pos; ++y){
+			for(int x = x_pos; x < normal->width + x_pos; ++x){
 
 				curr_pixel = color_from_packed32(__get_pixel((uint32_t *)__get_buffer(&n_surf),x - x_pos,y - y_pos));
 
-				if(curr_pixel.a <= 5) continue;
+				if(!curr_pixel.a) continue;
 
-				l_x = -1*x + light_x, l_y = y - light_y, l_z = -1*light_z;
+				int l_x = light_x - x, l_y = y - light_y, l_z = 0 - light_z;
+				
+				int mag = ((l_x * l_x + l_y * l_y + l_z * l_z) >> intensity);
+				if (!mag) mag = 1;
+				// if(!mag) inv_magnitude = 1;
+				// else inv_magnitude = intensity / mag;
 
-				if((l_x * l_x + l_y * l_y + l_z * l_z) == 0) inv_magnitude = 1;
-				else inv_magnitude = intensity / ((l_x * l_x + l_y * l_y + l_z * l_z));
-				l_x *= inv_magnitude;
-				l_y *= inv_magnitude;
-				l_z *= inv_magnitude;
-
-				float dot_product = l_x * ((float)curr_pixel.r / 255 - 0.5f) + l_y * ((float)curr_pixel.g / 255 - 0.5f) + l_z * ((float)curr_pixel.b / 255 - 0.5f);
+				int dot_product = (l_x * (curr_pixel.r - 127) + l_y * (curr_pixel.g - 127) + l_z * (curr_pixel.b - 127));
 				//dot_product = fabsf(dot_product);
-				if(dot_product > 1.f) dot_product = 1.f;
-				if(dot_product < 0.f) dot_product = 0.f;
+				if(dot_product < 0) dot_product = 0;
 
 				
-				output_pix.r = color.r;
-				output_pix.g = color.g;
-				output_pix.b = color.b;
-				output_pix.a = color.a * dot_product;
+				int alpha = (dot_product) / mag;
+				if(alpha > 255) alpha = 255;
 
-				graphics_draw_pixel_trans(disp, x, y, color_to_packed32(output_pix));
+				// if(x) continue;
+				graphics_draw_pixel_trans(disp, x, y, (col_pixel ^ 0xFF) | alpha);
 				
 			}
 		}
 }
+
 
 int main() {
 	display_init(RESOLUTION_320x240, DEPTH_32_BPP, 3, GAMMA_NONE, ANTIALIAS_RESAMPLE);
@@ -79,8 +107,13 @@ int main() {
 	dfs_init(DFS_DEFAULT_LOCATION);
 
 	rdpq_init();
+	timer_init();
 
-	n_map = sprite_load("rom:/normal.sprite");
+	debug_init(DEBUG_FEATURE_ALL);
+
+	controller_init();
+
+	n_map = sprite_load("rom:/normal3.sprite");
 	base = sprite_load("rom:/base.sprite");
 	// base = sprite_load("rom:/base.sprite");
 
@@ -88,42 +121,52 @@ int main() {
 	base_surf = sprite_get_pixels(base);
 	// base_surf = sprite_get_pixels(base);
 	// surface_t output_surf = surface_alloc(FMT_RGBA32, 32, 32);
-	float angle = 0;
-	float theta = 0;
+
 	color_t bk_color = {.r = 0, .g = 0, .b = 0, .a = 255};
-	color_t light_color = {.r = 255, .g = 255, .b = 0, .a = 255};
-	color_t light_color_2 = {.r = 0, .g = 255, .b = 0, .a = 255};
-	color_t light_color_3 = {.r = 255, .g = 0, .b = 0, .a = 127};
+	color_t light_color = {.r = 255, .g = 0, .b = 0, .a = 255};
 
 	rdpq_mode_antialias(false);
 	rdpq_mode_dithering(DITHER_NONE_NONE);
 
+	
+	int l_pos_x = 64, l_pos_y = 64, l_pos_z = 0;
+	float intensity = 127;
+	
 	while (1) {
 		surface_t *disp;
 		if (!(disp = display_lock()))
 			continue;
+		
+		struct controller_data control = get_keys_held();
+
+		controller_scan();
+
+		if(control.c[0].left) l_pos_x -= 5;
+		if(control.c[0].right) l_pos_x += 5;
+		if(control.c[0].up) l_pos_y -= 5;
+		if(control.c[0].down) l_pos_y += 5;
+		if(control.c[0].C_up) l_pos_z -= 5;
+		if(control.c[0].C_down) l_pos_z += 5;
+		if(control.c[0].C_left) intensity-=8;
+		if(control.c[0].C_right) intensity+=8;
 
 		rdpq_attach(disp, NULL);
 		graphics_fill_screen(disp, color_to_packed32(bk_color));
 
 		//graphics_draw_sprite_trans(disp, 100, 100, base);
 		//rdpq_fill_rectangle(0,0,320,240);
+	
+		//graphics_draw_sprite_trans(disp, 160, 120, base);
+		
+		uint64_t initial = TIMER_MICROS_LL(timer_ticks());
 
-		int l_pos_x = 160, l_pos_y = 240 - angle;
-		int l_pos_x2 = 160 + 64*cosf(theta), l_pos_y2 = 120 + 64*sinf(theta);
-		int l_pos_x3 = 160 - 64*cosf(0.25*theta), l_pos_y3 = 120;
-		graphics_draw_sprite_trans(disp, 160-16, 120-32, base);
-		draw_normal_point_light_tex(disp, n_map, 160-16, 120-32, l_pos_x-7, l_pos_y, -2, light_color, 50);
-		draw_normal_point_light_tex(disp, n_map, 160-16, 120-32, l_pos_x2, l_pos_y2, -2, light_color_2, 100);
-		draw_normal_point_light_tex(disp, n_map, 160-16, 120-32, l_pos_x3, l_pos_y3, -2, light_color_3, 50);
+		//draw_normal_point_light_tex_fast(disp, n_map, 160, 120, l_pos_x, l_pos_y, l_pos_z, light_color, 6);
+		//draw_normal_point_light_tex_float(disp, n_map, 0, 0, l_pos_x, l_pos_y, l_pos_z, light_color, intensity);
+		draw_normal_point_light_tex_float(disp, n_map, 128, 0, l_pos_x-128, l_pos_y, l_pos_z, light_color, intensity);
 
-		angle += 10;
-		theta += 0.2f;
+		debugf("%llu us\n", TIMER_MICROS(timer_ticks()) - initial);
 
-		if(angle >= 240) angle = 0.f;
-		if(theta >= 4*6.28f) theta = 0.f;
-
-
+		
 		rdpq_detach_show();
 	}
 	return 0;
