@@ -21,6 +21,70 @@ const int pix_stride = TEX_FORMAT_BYTES2PIX(FMT_RGBA32, 4*128);
 #define __set_pixel( buffer, x, y, color ) \
     (buffer)[(x) + ((y) * pix_stride)] = color
 
+static int __is_transparent( int bitdepth, uint32_t color )
+{
+    if( bitdepth == 2 )
+    {
+        /* Is alpha bit set? */
+        if( (color & 0x1) == 0x0 ) { return 1; }
+    }
+    else
+    {
+        /* Is alpha byte set? */
+        if( (color & 0xFF) == 0x00 ) { return 1; }
+    }
+
+    return 0;
+}
+
+void graphics_draw_pixel_trans_opt( surface_t* disp, int x, int y, uint32_t color )
+{
+    if( disp == 0 ) { return; }
+    int pix_stride = TEX_FORMAT_BYTES2PIX(surface_get_format(disp), disp->stride);
+
+    if( TEX_FORMAT_BITDEPTH(surface_get_format( disp )) == 16 )
+    {
+        /* Only display the pixel if alpha bit is set */
+        if( !__is_transparent( 2, color ) )
+        {
+            __set_pixel( (uint16_t *)__get_buffer( disp ), x, y, color );
+        }
+    }
+    else
+    {
+        /* Get 32bit representations */
+        uint32_t cur_color = __get_pixel( (uint32_t *)__get_buffer( disp ), x, y );
+
+        /* Get current color */
+        uint32_t cr = (cur_color >> 24) & 0xFF;
+        uint32_t cg = (cur_color >> 16) & 0xFF;
+        uint32_t cb = (cur_color >> 8) & 0xFF;
+
+        /* Get new color */
+        uint32_t sr = (color >> 24) & 0xFF;
+        uint32_t sg = (color >> 16) & 0xFF;
+        uint32_t sb = (color >> 8) & 0xFF;
+
+        /* Transparencies */
+        uint32_t st = color & 0xFF;
+        uint32_t ct = 255 - st;
+
+        /* Mixed color */
+        uint32_t mixed_color;
+        uint8_t *final_color = (uint8_t *)(&mixed_color);
+
+        final_color[0] = ((cr * ct) + (sr * st)) >> 8;
+        final_color[1] = ((cg * ct) + (sg * st)) >> 8;
+        final_color[2] = ((cb * ct) + (sb * st)) >> 8;
+
+        /* Since we are doing mixing anyway */
+        final_color[3] = 255;
+
+        __set_pixel( (uint32_t *)__get_buffer( disp ), x, y, mixed_color );
+    }
+
+}
+
 void draw_normal_point_light_tex_float(surface_t *disp, sprite_t *normal, int x_pos, int y_pos, int light_x, int light_y, int light_z, color_t color, float intensity) {
     surface_t n_surf = sprite_get_pixels(normal);
 
@@ -32,8 +96,11 @@ void draw_normal_point_light_tex_float(surface_t *disp, sprite_t *normal, int x_
 
     float l_x = 0, l_y = 0, l_z = 0;
 
-    for(int y = 0; y < normal->height; ++y){
-            for(int x = 0; x < normal->width; ++x){
+	const int width = normal->width;
+	const int height = normal->height;
+
+    for(int y = 0; y < height; ++y){
+            for(int x = 0; x < width; ++x){
 
                 curr_pixel = color_from_packed32(__get_pixel(buf,x, y));
 
@@ -54,7 +121,7 @@ void draw_normal_point_light_tex_float(surface_t *disp, sprite_t *normal, int x_
 				if(dot_product > 255.f) dot_product = 255.f;
                 if(dot_product < 0.f) dot_product = 0.f;
 
-                graphics_draw_pixel_trans(disp, x+x_pos, y+y_pos, (output_pix ^ 0xFF) | (uint32_t)(dot_product));
+                graphics_draw_pixel_trans_opt(disp, x+x_pos, y+y_pos, (output_pix ^ 0xFF) | (uint32_t)(dot_product));
                 
             }
         }
